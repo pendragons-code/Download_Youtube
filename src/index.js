@@ -7,83 +7,73 @@ const figlet = require('figlet');
 const inquirer = require('inquirer');
 const color = require('./functions/color');
 const Download = require('./functions/download');
-const { download, playlist } = new Download();
-let list = [];
-let dir = `./músicas`;
-let format;
+
+const download = new Download();
+const dir = './músicas';
 
 console.log(color(figlet.textSync('Download_Youtube'), 'cian'));
 
-inquirer.prompt([
-  {
-    name: 'url',
-    message: 'link do vídeo ou da playlist:',
-    validate(answer) {
-      if (answer.length < 1) {
-        return 'Digite ou cole o link, essa ação e obrigatória.';
-      };
-      let pass = false
-      if (validateURL(answer.trim())) pass = true;
-      if (ytpl.validateID(answer.trim())) pass = true;
-      if (!pass) return 'Digite ou cole o link, essa ação e obrigatória.';
-      return true;
-    }
-  },
-  {
-    type: 'list',
-    message: 'escolha o formato de download:',
-    name: 'format',
-    choices: ['MP4', 'MP3']
-  }
-]).then(async (data) => {
-
-  const URL = data.url;
-  const TYPE = data.format;
-
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir);
-  };
-
-  if (validateURL(URL)) {
-    await download({ url: URL, type: TYPE, dir: dir });
-  } else {
-
-    list = await ytpl(URL, { pages: 1 }).catch(e => {
-      console.log(color('[ERROR] - Ocorreu um erro! verifique o link e tente novamente.', 'red'));
-      process.exit();
-    });
-
-    if (list.estimatedItemCount > 100) {
-      list = await ytpl(URL, { pages: Math.ceil(list.estimatedItemCount / 100, 1) });
-    };
-
-    dir = dir + '/' + list.title.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/([^\w]+|\s+)/g, '-').replace(/\-\-+/g, '-').replace(/(^-+|-+$)/, '');
+async function main() {
+  try {
+    const { url, format } = await inquirer.prompt([
+      {
+        name: 'url',
+        message: 'Link do vídeo ou da playlist:',
+        validate(answer) {
+          if (!answer.trim()) {
+            return 'Digite ou cole o link, esta ação é obrigatória.';
+          }
+          if (validateURL(answer.trim()) || ytpl.validateID(answer.trim())) {
+            return true;
+          }
+          return 'Digite ou cole o link, esta ação é obrigatória.';
+        },
+      },
+      {
+        type: 'list',
+        message: 'Escolha o formato de download:',
+        name: 'format',
+        choices: ['MP4', 'MP3'],
+      },
+    ]);
 
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir);
+    }
+
+    if (validateURL(url)) {
+      await download.download({ url, type: format, dir });
     } else {
-      dir = `./músicas`;
-    };
+      const playlistInfo = await ytpl(url, { pages: 1 });
 
-    for (let i = 0; i < list.items.length; i++) {
-      const url = list.items[i].shortUrl;
-      const num = i + 1;
-      list.items[i].index = num;
-      console.log(num, color(url, 'white'));
-    };
+      if (playlistInfo.estimatedItemCount > 100) {
+        playlistInfo = await ytpl(url, {
+          pages: Math.ceil(playlistInfo.estimatedItemCount / 100, 1),
+        });
+      }
 
-    await playlist({ list: list, type: TYPE, dir: dir });
+      const playlistDir = `${dir}/${playlistInfo.title.normalize('NFD').replace(
+        /[\u0300-\u036f]/g,
+        ''
+      )}`;
 
-  };
+      if (!fs.existsSync(playlistDir)) {
+        fs.mkdirSync(playlistDir);
+      }
 
-});
+      for (let i = 0; i < playlistInfo.items.length; i++) {
+        const url = playlistInfo.items[i].shortUrl;
+        const num = i + 1;
+        playlistInfo.items[i].index = num;
+        console.log(num, color(url, 'white'));
+      }
 
-process.on("unhandRejection", (reason, promise) => {});
+      await download.playlist({ list: playlistInfo, type: format, dir: playlistDir });
+    }
+  } catch (error) {
+    console.log(color(`[ERROR] - ${error.message}`, 'red'));
+  }
+}
 
-process.on("uncaughtException", (error, origin) => {
-  console.log(`Erros identificado:\n\n` + error, origin);
-});
+main();
 
-process.on("uncaughtExceptionMonitor", (error, origin) => {
-  console.log(`Erros identificado:\n\n` + error, origin);
-});
